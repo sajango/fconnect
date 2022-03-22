@@ -1,0 +1,96 @@
+Description: >
+  This template illustrates reference architecture for Blue/Green Deployment on ECS. For further reference, please review BluegreenRepo ==> https://github.com/awslabs/ecs-blue-green-deployment
+
+
+Parameters:
+  TemplateBucket:
+    Type: String
+    Description: >
+      S3 Bucket used for nested templates
+  Email:
+    Description: 'Optional email address that will receive alerts.'
+    Type: String
+    Default: ''
+
+Resources:
+  Vpc:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/infrastucture/vpc/vpc-3azs.yaml
+
+  Alert:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/infrastucture/operations/alert.yaml
+      Parameters:
+        Email: !Ref Email
+
+  Secret:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/infrastucture/state/secretsmanager-dbsecret.yaml
+
+  Waf:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/infrastucture/security/waf.yaml
+      Parameters:
+        Scope: REGIONAL
+        RateLimit: 100
+        RateLimitEffect: Block
+        ReputationListEffect: Disable
+        BotControlEffect: Disable
+
+  SecurityGroup1:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/infrastucture/vpc/client-sg.yaml
+      Parameters:
+        ParentVPCStack: !GetAtt Vpc.Outputs.StackName
+        GroupName: !Sub '${AWS::StackName}-alb-sg'
+
+  SecurityGroup2:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/infrastucture/vpc/client-sg.yaml
+      Parameters:
+        ParentVPCStack: !GetAtt Vpc.Outputs.StackName
+        GroupName: !Sub '${AWS::StackName}-task-sg'
+
+  RdsMysql:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/infrastucture/state/rds-mysql.yaml
+      Parameters:
+        ParentVPCStack: !GetAtt Vpc.Outputs.StackName
+        ParentClientStack: !GetAtt SecurityGroup2.Outputs.StackName
+        ParentAlertStack: !GetAtt Alert.Outputs.StackName
+        ParentSecretStack: !GetAtt Secret.Outputs.StackName
+        DBInstanceIdentifier: !Sub '${AWS::StackName}-rds-mysql'
+
+  ElastiCacheRedis:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/infrastucture/state/elasticache-redis.yaml
+      Parameters:
+        ParentVPCStack: !GetAtt Vpc.Outputs.StackName
+        ParentClientStack: !GetAtt SecurityGroup2.Outputs.StackName
+        ParentAlertStack: !GetAtt Alert.Outputs.StackName
+
+  S3Storage:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/infrastucture/state/s3.yaml
+      Parameters:
+        BucketName: !Sub '${AWS::StackName}'
+
+  FargetCluster:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/infrastucture/fargate/cluster.yaml
+      Parameters:
+        ParentVPCStack: !GetAtt Vpc.Outputs.StackName
+        ParentAlertStack: !GetAtt Alert.Outputs.StackName
+        ParentWAFStack: !GetAtt Waf.Outputs.StackName
+        ClusterName: !Sub '${AWS::StackName}-cluster'
+        LoadBalancerName: !Sub '${AWS::StackName}-alb'

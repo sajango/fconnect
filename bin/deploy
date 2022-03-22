@@ -1,0 +1,17 @@
+#!/bin/bash
+
+DEFAULT_PROFILE=sangnddev
+DEFAULT_REGION=ap-southeast-1
+DEFAULT_ALERT=sang.nguyenduc@amela.vn
+
+set -o errexit -o xtrace
+echo -n "Enter S3 Bucket to host the templates and scripts > "
+read bucket
+echo -n "Enter stackname to create or update the stack > "
+read stackname
+
+
+
+aws s3 cp --recursive infrastucture/ "s3://${bucket}/infrastucture" --acl public-read --region $DEFAULT_REGION --profile ${DEFAULT_PROFILE}
+aws s3api put-bucket-versioning --bucket "${bucket}" --versioning-configuration Status=Enabled --region $DEFAULT_REGION --profile ${DEFAULT_PROFILE}
+aws cloudformation deploy --stack-name $stackname --template-file ecs-fargate-deployment.yaml --capabilities CAPABILITY_NAMED_IAM --parameter-overrides TemplateBucket=$bucket Email=sangnd.it@gmail.com --region $DEFAULT_REGION --profile ${DEFAULT_PROFILE}
